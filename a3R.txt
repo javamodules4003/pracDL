@@ -1,0 +1,73 @@
+# Practical 3: Character-Level Text Generation using RNN
+# Author: Shadow and Venom
+
+import tensorflow as tf
+from tensorflow.keras import layers, models
+import numpy as np
+
+# Step 1: Load Shakespeare text (small lowercase corpus)
+path = tf.keras.utils.get_file(
+    "shakespeare.txt",
+    "https://storage.googleapis.com/download.tensorflow.org/data/shakespeare.txt"
+)
+text = open(path, 'rb').read().decode(encoding='utf-8').lower()
+
+# Use only first 500,000 characters to avoid memory issues
+text = text[:500000]
+
+# Step 2: Create character mappings
+chars = sorted(list(set(text)))
+char_to_idx = {c: i for i, c in enumerate(chars)}
+idx_to_char = {i: c for i, c in enumerate(chars)}
+
+# Step 3: Prepare sequences
+seq_length = 60
+step = 3  # smaller overlap for speed
+sentences, next_chars = [], []
+for i in range(0, len(text) - seq_length, step):
+    sentences.append(text[i: i + seq_length])
+    next_chars.append(text[i + seq_length])
+
+# Vectorize data
+x = np.zeros((len(sentences), seq_length, len(chars)), dtype=np.float32)
+y = np.zeros((len(sentences), len(chars)), dtype=np.float32)
+
+for i, sentence in enumerate(sentences):
+    for t, char in enumerate(sentence):
+        x[i, t, char_to_idx[char]] = 1.0
+    y[i, char_to_idx[next_chars[i]]] = 1.0
+
+# Step 4: Build Simple RNN model
+model = models.Sequential([
+    layers.SimpleRNN(128, input_shape=(seq_length, len(chars))),
+    layers.Dense(len(chars), activation='softmax')
+])
+
+model.compile(loss='categorical_crossentropy', optimizer='adam')
+
+# Step 5: Train briefly (adjust epochs for quality)
+model.fit(x, y, batch_size=128, epochs=5)
+
+# Step 6: Text generation function
+def generate_text(seed_text, length=200, temperature=0.5):
+    generated = seed_text
+    for _ in range(length):
+        sampled = np.zeros((1, seq_length, len(chars)), dtype=np.float32)
+        for t, char in enumerate(seed_text[-seq_length:]):
+            if char in char_to_idx:
+                sampled[0, t, char_to_idx[char]] = 1.0
+
+        preds = model.predict(sampled, verbose=0)[0]
+        preds = np.log(preds + 1e-8) / temperature
+        exp_preds = np.exp(preds)
+        preds = exp_preds / np.sum(exp_preds)
+        next_idx = np.random.choice(len(chars), p=preds)
+        next_char = idx_to_char[next_idx]
+
+        generated += next_char
+        seed_text += next_char
+    return generated
+
+# Step 7: Generate sample text
+print("\n--- Generated Text (RNN) ---")
+print(generate_text("to be or not to be ", length=300, temperature=0.6))

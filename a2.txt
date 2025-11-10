@@ -1,0 +1,140 @@
+code:
+# 🌸 FLOWER Practical 2 — Transfer Learning & Fine-Tuning with MobileNetV2
+
+import tensorflow as tf
+from tensorflow.keras import layers, models
+import tensorflow_datasets as tfds
+import matplotlib.pyplot as plt
+import numpy as np
+from PIL import Image
+import os
+from sklearn.metrics import confusion_matrix, classification_report
+import seaborn as sns
+
+# ================== DATA PREPARATION ==================
+IMG_SIZE = (160, 160)
+BATCH_SIZE = 32
+AUTOTUNE = tf.data.AUTOTUNE
+
+# Load tf_flowers dataset
+(train_ds, val_ds), ds_info = tfds.load(
+    'tf_flowers',
+    split=['train[:85%]', 'train[85%:]'],
+    as_supervised=True,
+    with_info=True
+)
+
+# Preprocessing function
+def preprocess(image, label):
+    image = tf.image.resize(image, IMG_SIZE)
+    image = image / 255.0
+    return image, label
+
+train_ds = train_ds.map(preprocess).shuffle(1000).batch(BATCH_SIZE).prefetch(AUTOTUNE)
+val_ds = val_ds.map(preprocess).batch(BATCH_SIZE).prefetch(AUTOTUNE)
+
+class_names = ds_info.features['label'].names
+
+# ================== MODEL DEFINITION ==================
+base_model = tf.keras.applications.MobileNetV2(
+    input_shape=IMG_SIZE + (3,),
+    include_top=False,
+    weights='imagenet'
+)
+base_model.trainable = False  # Feature extraction mode
+
+model = models.Sequential([
+    base_model,
+    layers.GlobalAveragePooling2D(),
+    layers.Dense(ds_info.features['label'].num_classes, activation='softmax')
+])
+
+# ================== TRAINING (Feature Extraction) ==================
+model.compile(optimizer='adam',
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+print("\n--- Training MobileNetV2 (Feature Extraction) ---")
+history = model.fit(train_ds, validation_data=val_ds, epochs=3)
+
+# ================== FINE-TUNING ==================
+print("\n--- Fine-tuning MobileNetV2 ---")
+base_model.trainable = True
+
+# Optionally freeze most layers (fine-tune only top ones)
+for layer in base_model.layers[:-30]:
+    layer.trainable = False
+
+model.compile(optimizer=tf.keras.optimizers.Adam(1e-5),
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+
+history_fine = model.fit(train_ds, validation_data=val_ds, epochs=3)
+
+# ================== EVALUATION ==================
+val_loss, val_acc = model.evaluate(val_ds)
+print(f"\n✅ Validation Accuracy after Fine-tuning: {val_acc:.4f}")
+
+# Accuracy plot
+train_acc = history.history['accuracy'] + history_fine.history['accuracy']
+val_accs = history.history['val_accuracy'] + history_fine.history['val_accuracy']
+
+plt.figure(figsize=(8, 5))
+plt.plot(train_acc, label='Train Accuracy')
+plt.plot(val_accs, label='Validation Accuracy')
+plt.title("Training vs Validation Accuracy (MobileNetV2 Fine-tuning)")
+plt.xlabel("Epochs")
+plt.ylabel("Accuracy")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# ================== CONFUSION MATRIX & REPORT ==================
+y_true, y_pred = [], []
+for images, labels in val_ds:
+    preds = model.predict(images, verbose=0)
+    y_true.extend(labels.numpy())
+    y_pred.extend(np.argmax(preds, axis=1))
+
+cm = confusion_matrix(y_true, y_pred)
+
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+            xticklabels=class_names, yticklabels=class_names)
+plt.xlabel("Predicted Label")
+plt.ylabel("True Label")
+plt.title("Confusion Matrix — MobileNetV2 (Fine-tuned)")
+plt.show()
+
+print("\nClassification Report:")
+print(classification_report(y_true, y_pred, target_names=class_names))
+
+# ================== TEST ON CUSTOM IMAGES ==================
+def predict_image(image_path):
+    img = Image.open(image_path).convert('RGB')
+    img = img.resize(IMG_SIZE)
+    img_array = np.expand_dims(np.array(img) / 255.0, axis=0)
+
+    preds = model.predict(img_array, verbose=0)
+    pred_label = np.argmax(preds)
+    confidence = preds[0][pred_label]
+
+    print(f"\nImage: {os.path.basename(image_path)}")
+    print(f"Predicted: {class_names[pred_label]} (Confidence: {confidence:.2f})")
+
+    plt.imshow(img)
+    plt.title(f"{class_names[pred_label]} ({confidence:.2f})")
+    plt.axis('off')
+    plt.show()
+
+# Folder containing your test images
+folder_path = r"D:\DEEP_LEARNING_Prac\Test Dataset"
+
+# Get all image files in that folder
+image_files = [f for f in os.listdir(folder_path) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.webp'))]
+
+# Run prediction on each image
+for image_file in image_files:
+    image_path = os.path.join(folder_path, image_file)
+    predict_image(image_path) 
+

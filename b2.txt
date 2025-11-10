@@ -1,0 +1,40 @@
+# Object Detection using YOLOv8
+!pip install ultralytics --quiet
+
+from ultralytics import YOLO
+import torch
+import cv2
+import os
+from matplotlib import pyplot as plt
+
+# Check device
+device = "GPU" if torch.cuda.is_available() else "CPU"
+print(f"Using device: {device}")
+
+# Load pre-trained YOLOv8 model
+model = YOLO('yolov8n.pt')
+
+# Download and read image
+image_url = "https://4kwallpapers.com/images/wallpapers/katseye-members-3840x2160-18490.jpeg"
+os.system(f"wget -q \"{image_url}\" -O input.jpg")
+
+if not os.path.exists("input.jpg"):
+    raise FileNotFoundError("Image not downloaded. Check URL.")
+
+img = cv2.imread("input.jpg")
+if img is None:
+    raise ValueError("Could not load image. Possibly wrong format or filename.")
+
+h, w, _ = img.shape
+print(f"Image loaded: {w}×{h}")
+
+# Run detection
+results = model("input.jpg", show=False)
+results[0].save(filename="detected.jpg")
+
+# Display result
+detected_img = cv2.imread("detected.jpg")
+detected_img = cv2.cvtColor(detected_img, cv2.COLOR_BGR2RGB)
+plt.imshow(detected_img)
+plt.axis("off")
+plt.show()
